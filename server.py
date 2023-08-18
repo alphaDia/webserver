@@ -1,56 +1,62 @@
 import logging
 import socket
-import time
 from concurrent import futures
 
 
-class Server:
-    def __init__(self, host: str, port: int) -> None:
-        self.host = host
-        self.port = port
-        self.soc = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.soc.bind((self.host, self.port))
-
-    def listen(self):
-        logging.info("Server listening on %s:%d" % (self.host, self.port))
-        self.soc.listen()
-
-    def accept(self):
-        with futures.ThreadPoolExecutor(max_workers=4) as executor:
-            executor.submit(self.handle_connection)
-
-    def handle_connection(self):
-        conn, addr = self.soc.accept()
-        with conn:
-            logging.info("Connection received from client")
-            request = conn.recv(1024)
-            data = request.decode("utf-8").split("\r\n")
-            conn.sendall(self.handle_response(data))
-
-    def handle_response(self, data):
-        _, path, http_version = data[0].split(" ")
-        response = f"{http_version} 404 Not Found\r\nConnection: close\r\n"
+class HttpResponse:
+    def read(self, path, version, base="www"):
         if path in ("/", "/index.html/", "/index.html"):
-            with open("www/index.html", "r") as fd:
+            path = f"{base}/index.html"
+        else:
+            path = base + path
+
+        try:
+            with open(path, "r") as fd:
                 content = fd.read()
-                response = (
-                    f"{http_version} 200 OK\r\n"
+                return (
+                    f"{version} 200 OK\r\n"
                     f"Connection: close\r\n"
                     f"Content-type: text/html\r\n\r\n{content}"
                 )
-        response = response.encode("utf-8")
+        except OSError:
+            logging.info(f"No file with the name {path} was found")
 
-        return response
+    def response(self, data):
+        _, path, http_version = data[0].split(" ")
+        http_response = self.read(path, http_version) or (
+            f"{http_version} 404 Not Found\r\nConnection: close\r\n"
+        )
+        return http_response.encode("utf-8")
 
 
-def blocked_print(id):
-    print("print %d" % id)
-    time.sleep(3)
+class WebServer(socket.socket):
+    def __init__(self, host: str, port: int) -> None:
+        super(WebServer, self).__init__(socket.AF_INET, socket.SOCK_STREAM)
+        self.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.bind((host, port))
+        logging.info("Server listening on %s:%d" % (host, port))
+        self.listen()
+
+    def handle_request(self, thread_id: int, response: HttpResponse) -> None:
+        conn, addr = self.accept()
+        logging.info("Thread(%d) start" % thread_id)
+        logging.info("Thread %d: handle request" % thread_id)
+        with conn:
+            request = conn.recv(1024).decode("utf-8").split("\r\n")
+            conn.sendall(response.response(request))
+        logging.info("Thread %d: sent response" % thread_id)
+        logging.info("Thread(%d) terminate" % thread_id)
+
+    def __del__(self):
+        logging.info("closing socket")
+        self.close()
+        logging.info("socket closed")
 
 
 if __name__ == "__main__":
     fmt = "%(asctime)s: %(message)s"
     logging.basicConfig(level=logging.INFO, format=fmt, datefmt="%H:%M:%S")
-    server = Server("127.0.0.1", 80)
-    server.listen()
-    server.accept()
+    server = WebServer("127.0.0.1", 3000)
+    with futures.ThreadPoolExecutor(max_workers=10) as executor:
+        for i in range(7):
+            executor.submit(server.handle_request, i, HttpResponse())
