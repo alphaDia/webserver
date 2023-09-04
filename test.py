@@ -6,6 +6,7 @@ import requests
 
 class WebServerTest(unittest.TestCase):
     """Before running the test case please make sure the server is running.
+
     You can run the server by typing python3 server.py in your terminal if you're
     on linux or python.exe server.py if you're on windows
     """
@@ -44,8 +45,13 @@ class WebServerTest(unittest.TestCase):
         content_length = response.headers["content-length"]
         self.assertEqual(content_length, byte_length)
 
+    def test_get_invalid_path(self):
+        url = f"{self.url}/invalid.html"
+        response = requests.get(url)
+        self.assertEqual(response.status_code, 404)
+
     def test_send_multiple_request_to_server(self):
-        urls = [f"{self.url}/detail/detail.html"] * 5
+        urls = [f"{self.url}/detail/detail.html"] * 10
 
         with futures.ThreadPoolExecutor() as executor:
             responses = list(executor.map(requests.get, urls))
@@ -55,6 +61,11 @@ class WebServerTest(unittest.TestCase):
         self.assertEqual(responses[2].status_code, 200)
         self.assertEqual(responses[3].status_code, 200)
         self.assertEqual(responses[4].status_code, 200)
+        self.assertEqual(responses[5].status_code, 200)
+        self.assertEqual(responses[6].status_code, 200)
+        self.assertEqual(responses[7].status_code, 200)
+        self.assertEqual(responses[8].status_code, 200)
+        self.assertEqual(responses[9].status_code, 200)
 
 
 if __name__ == "__main__":
